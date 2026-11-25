@@ -1,0 +1,56 @@
+name: Announce release on Discord
+
+# Posts a message to your Discord updates channel every time you publish a release
+# (for example with:  build.bat patch --release --notes "What changed")
+on:
+  release:
+    types: [published]
+
+jobs:
+  announce:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}   # secret: the Discord webhook URL
+          ROLE_ID: ${{ vars.UPDATES_ROLE_ID }}               # optional variable: role to ping
+          TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          NOTES: ${{ github.event.release.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          role = os.environ.get("ROLE_ID", "").strip()
+          notes = (os.environ.get("NOTES") or "").strip() or "No release notes were provided."
+          if len(notes) > 1500:
+              notes = notes[:1500].rsplit("\n", 1)[0] + "\n..."
+          download = f"https://github.com/{repo}/releases/latest/download/MangaSplitter-Setup.exe"
+          payload = {
+              "username": "Manga Splitter Updates",
+              "content": (f"<@&{role}> " if role else "") + f"**Manga Splitter {tag}** is out!",
+              "allowed_mentions": {"roles": [role] if role else []},
+              "embeds": [{
+                  "title": f"Manga Splitter {tag}",
+                  "url": os.environ["RELEASE_URL"],
+                  "description": notes,
+                  "color": 0x1E90FF,
+                  "fields": [
+                      {"name": "Already installed?",
+                       "value": "Open the app and press **Update available** on the main menu."},
+                      {"name": "New install",
+                       "value": f"[Download MangaSplitter-Setup.exe]({download})"},
+                  ],
+              }],
+          }
+          req = urllib.request.Request(
+              os.environ["WEBHOOK_URL"], data=json.dumps(payload).encode("utf-8"), method="POST",
+              headers={"Content-Type": "application/json",
+                       "User-Agent": "MangaSplitter-ReleaseAnnouncer/1.0"})
+          urllib.request.urlopen(req, timeout=20).read()
+          print("Posted to Discord")
+          PY
