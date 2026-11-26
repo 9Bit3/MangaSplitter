@@ -52,7 +52,7 @@ jobs:
           notes = notes or "No release notes were provided."
           if len(notes) > 1500:
               notes = notes[:1500].rsplit("\n", 1)[0] + "\n..."
-          download = f"https://github.com/{repo}/releases/latest/download/MangaSplitter-Setup.exe"
+          latest = f"https://github.com/{repo}/releases/latest"   # always opens the newest release page
           head = f"**[TEST]** Preview of the update announcement - ignore this." if test else \
                  (f"<@&{role}> " if role else "") + f"**Manga Splitter {tag}** is out!"
           payload = {
@@ -68,7 +68,7 @@ jobs:
                       {"name": "Already installed?",
                        "value": "Open the app and press **Update available** on the main menu."},
                       {"name": "New install",
-                       "value": f"[Download MangaSplitter-Setup.exe]({download})"},
+                       "value": f"[Get it from the latest release]({latest})"},
                   ],
               }],
           }
