@@ -1,42 +1,67 @@
 name: Announce release on Discord
 
-# Posts a message to your Discord updates channel every time you publish a release
-# (for example with:  build.bat patch --release --notes "What changed")
+# Runs automatically when you publish a release (for example with:
+#   build.bat patch --release --notes "What changed")
+# and can also be started by hand from the Actions tab to test it.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      test_only:
+        description: "Test run: post a clearly marked test message (no role ping). Untick to re-announce the latest release for real."
+        type: boolean
+        default: true
 
 jobs:
   announce:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     steps:
       - name: Post to Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}   # secret: the Discord webhook URL
           ROLE_ID: ${{ vars.UPDATES_ROLE_ID }}               # optional variable: role to ping
+          EVENT: ${{ github.event_name }}
+          TEST_ONLY: ${{ inputs.test_only }}
           TAG: ${{ github.event.release.tag_name }}
           RELEASE_URL: ${{ github.event.release.html_url }}
           NOTES: ${{ github.event.release.body }}
           REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import json, os, urllib.request
 
-          tag = os.environ["TAG"]
           repo = os.environ["REPO"]
-          role = os.environ.get("ROLE_ID", "").strip()
-          notes = (os.environ.get("NOTES") or "").strip() or "No release notes were provided."
+          manual = os.environ["EVENT"] == "workflow_dispatch"
+          test = manual and os.environ.get("TEST_ONLY") == "true"
+          tag, url, notes = os.environ["TAG"], os.environ["RELEASE_URL"], (os.environ.get("NOTES") or "").strip()
+          if manual:  # no release event to read from: use the newest published release instead
+              try:
+                  api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+                  req = urllib.request.Request(f"{api}/repos/{repo}/releases/latest", headers={
+                      "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                      "Accept": "application/vnd.github+json", "User-Agent": "MangaSplitter-ReleaseAnnouncer/1.0"})
+                  rel = json.load(urllib.request.urlopen(req, timeout=20))
+                  tag, url, notes = rel["tag_name"], rel["html_url"], (rel.get("body") or "").strip()
+              except Exception:
+                  tag, url = "v0.0.0", f"https://github.com/{repo}/releases"
+                  notes = "There is no published release yet - this is only a test message."
+          role = "" if test else os.environ.get("ROLE_ID", "").strip()
+          notes = notes or "No release notes were provided."
           if len(notes) > 1500:
               notes = notes[:1500].rsplit("\n", 1)[0] + "\n..."
           download = f"https://github.com/{repo}/releases/latest/download/MangaSplitter-Setup.exe"
+          head = f"**[TEST]** Preview of the update announcement - ignore this." if test else \
+                 (f"<@&{role}> " if role else "") + f"**Manga Splitter {tag}** is out!"
           payload = {
               "username": "Manga Splitter Updates",
-              "content": (f"<@&{role}> " if role else "") + f"**Manga Splitter {tag}** is out!",
+              "content": head,
               "allowed_mentions": {"roles": [role] if role else []},
               "embeds": [{
                   "title": f"Manga Splitter {tag}",
-                  "url": os.environ["RELEASE_URL"],
+                  "url": url,
                   "description": notes,
                   "color": 0x1E90FF,
                   "fields": [
